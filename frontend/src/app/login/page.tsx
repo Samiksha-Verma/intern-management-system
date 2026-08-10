@@ -12,6 +12,13 @@ interface LoginResponse {
   user: SessionUser;
 }
 
+const DEMO_ACCOUNTS = [
+  { role: "Admin", email: "demo.admin@example.com" },
+  { role: "Mentor", email: "demo.mentor@example.com" },
+  { role: "Intern", email: "demo.intern@example.com" },
+] as const;
+const DEMO_PASSWORD = "DemoPass123!";
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -20,6 +27,7 @@ export default function LoginPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [demoLoadingEmail, setDemoLoadingEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const session = getSession();
@@ -38,6 +46,15 @@ export default function LoginPage() {
     return Object.keys(errors).length === 0;
   }
 
+  async function performLogin(loginEmail: string, loginPassword: string) {
+    const data = await apiFetch<LoginResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+    });
+    saveSession(data);
+    router.push(dashboardPathForRole(data.user.role));
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -45,16 +62,23 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const data = await apiFetch<LoginResponse>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      saveSession(data);
-      router.push(dashboardPathForRole(data.user.role));
+      await performLogin(email, password);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDemoLogin(demoEmail: string) {
+    setError(null);
+    setDemoLoadingEmail(demoEmail);
+    try {
+      await performLogin(demoEmail, DEMO_PASSWORD);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setDemoLoadingEmail(null);
     }
   }
 
@@ -154,6 +178,36 @@ export default function LoginPage() {
           Access is provisioned by your admin or mentor. Contact them if you don&apos;t have an
           account yet.
         </p>
+
+        <div className="mt-8 rounded-xl border border-border bg-surface p-5">
+          <h2 className="text-sm font-semibold">Try a demo</h2>
+          <p className="text-xs text-muted mt-1">
+            No account? Explore the app as each role with sample data — no signup needed.
+          </p>
+
+          <div className="mt-4 flex flex-col gap-3">
+            {DEMO_ACCOUNTS.map((demo) => (
+              <div
+                key={demo.email}
+                className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-foreground">{demo.role}</p>
+                  <p className="text-xs text-muted truncate select-all">{demo.email}</p>
+                  <p className="text-xs text-muted select-all">{DEMO_PASSWORD}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDemoLogin(demo.email)}
+                  disabled={demoLoadingEmail !== null}
+                  className="shrink-0 rounded-md bg-brand hover:bg-brand-hover disabled:opacity-60 disabled:cursor-not-allowed text-black text-xs font-medium px-3 py-1.5 transition-colors"
+                >
+                  {demoLoadingEmail === demo.email ? "Signing in..." : "Log in"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -38,6 +38,7 @@ export async function login(req: Request, res: Response) {
     role: user.role,
     name: user.name,
     email: user.email,
+    isDemo: user.isDemo,
   });
 
   return res.json({
@@ -100,6 +101,13 @@ export async function changePassword(req: Request, res: Response) {
   const { currentPassword, newPassword } = parsed.data;
   const userId = req.user!.sub;
 
+  // Demo accounts' credentials are published on the login page — letting a
+  // visitor change one would lock out every other visitor until the next
+  // scheduled reset.
+  if (req.user!.isDemo) {
+    throw new HttpError(400, "Demo accounts can't change their password");
+  }
+
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || !user.passwordHash) {
     throw new HttpError(404, "User not found");
@@ -136,7 +144,7 @@ export async function forgotPassword(req: Request, res: Response) {
       where: { id: user.id },
       data: { inviteToken, inviteTokenExpiresAt: inviteExpiryDate() },
     });
-    await sendPasswordResetEmail(user.email, user.name, inviteToken);
+    await sendPasswordResetEmail(user.email, user.name, inviteToken, user.isDemo);
   }
 
   return res.json({
@@ -194,6 +202,7 @@ export async function setPassword(req: Request, res: Response) {
     role: updated.role,
     name: updated.name,
     email: updated.email,
+    isDemo: updated.isDemo,
   });
 
   return res.json({

@@ -10,20 +10,26 @@ import { parseInternCsv } from "../utils/csv";
 import { HttpError } from "../utils/http-error";
 import { calculateAttendancePercentage } from "../utils/attendance";
 import { TASK_UPLOAD_DIR } from "../middleware/upload.middleware";
+import { assertDemoScopeAllowed } from "../utils/demo-scope";
 
 const STATUS_VALUES: UserStatus[] = ["pending", "invited", "active"];
 const ACCEPTED_STATUSES: UserStatus[] = ["invited", "active"];
 
-export async function getStats(_req: Request, res: Response) {
+export async function getStats(req: Request, res: Response) {
+  // A demo admin only ever sees demo data; a real admin only ever sees real
+  // data — the two datasets never mix in any admin-wide (non-ownership)
+  // view, in either direction.
+  const isDemo = req.user!.isDemo;
+
   const [totalInterns, totalMentors, pendingApprovals, departmentGroups] = await Promise.all([
     // "Total Interns" means accepted interns (invited or active) — pending
     // sign-ups awaiting approval aren't counted until an admin accepts them.
-    prisma.user.count({ where: { role: "intern", status: { in: ACCEPTED_STATUSES } } }),
-    prisma.user.count({ where: { role: "mentor" } }),
-    prisma.user.count({ where: { role: "intern", status: "pending" } }),
+    prisma.user.count({ where: { role: "intern", status: { in: ACCEPTED_STATUSES }, isDemo } }),
+    prisma.user.count({ where: { role: "mentor", isDemo } }),
+    prisma.user.count({ where: { role: "intern", status: "pending", isDemo } }),
     prisma.user.groupBy({
       by: ["department"],
-      where: { role: "intern" },
+      where: { role: "intern", isDemo },
       _count: { _all: true },
     }),
   ]);
@@ -49,7 +55,7 @@ export async function listInterns(req: Request, res: Response) {
         : {};
 
   const interns = await prisma.user.findMany({
-    where: { role: "intern", ...statusFilter },
+    where: { role: "intern", isDemo: req.user!.isDemo, ...statusFilter },
     include: { mentor: { select: { id: true, name: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -66,9 +72,9 @@ export async function listInterns(req: Request, res: Response) {
   });
 }
 
-export async function listMentors(_req: Request, res: Response) {
+export async function listMentors(req: Request, res: Response) {
   const mentors = await prisma.user.findMany({
-    where: { role: "mentor" },
+    where: { role: "mentor", isDemo: req.user!.isDemo },
     select: {
       id: true,
       name: true,
@@ -108,6 +114,7 @@ export async function deleteMentor(req: Request, res: Response) {
   if (!mentor || mentor.role !== "mentor") {
     throw new HttpError(404, "Mentor not found");
   }
+  assertDemoScopeAllowed(req.user!.isDemo, mentor.isDemo);
   if (mentor._count.interns > 0) {
     throw new HttpError(
       400,
@@ -142,6 +149,7 @@ export async function reassignIntern(req: Request, res: Response) {
   if (!intern || intern.role !== "intern") {
     throw new HttpError(404, "Intern not found");
   }
+  assertDemoScopeAllowed(req.user!.isDemo, intern.isDemo);
   if (!intern.mentorId) {
     throw new HttpError(400, "This intern doesn't have a mentor yet — use Accept instead");
   }
@@ -150,6 +158,7 @@ export async function reassignIntern(req: Request, res: Response) {
   if (!mentor || mentor.role !== "mentor") {
     throw new HttpError(404, "Mentor not found");
   }
+  assertDemoScopeAllowed(req.user!.isDemo, mentor.isDemo);
   if (mentor.id === intern.mentorId) {
     throw new HttpError(400, "This intern is already assigned to that mentor");
   }
@@ -196,10 +205,13 @@ export async function createMentor(req: Request, res: Response) {
       status: "invited",
       inviteToken,
       inviteTokenExpiresAt: inviteExpiryDate(),
+      // A mentor created by the demo admin stays inside the demo sandbox —
+      // never mixed with real mentors — and never gets a real invite email.
+      isDemo: req.user!.isDemo,
     },
   });
 
-  await sendInviteEmail(mentor.email, mentor.name, inviteToken);
+  await sendInviteEmail(mentor.email, mentor.name, inviteToken, req.user!.isDemo);
 
   res.status(201).json({
     mentor: { id: mentor.id, name: mentor.name, email: mentor.email, status: mentor.status },
@@ -253,7 +265,14 @@ export async function importInterns(req: Request, res: Response) {
     }
 
     await prisma.user.create({
-      data: { name, email, role: "intern", status: "pending", department: department || null },
+      data: {
+        name,
+        email,
+        role: "intern",
+        status: "pending",
+        department: department || null,
+        isDemo: req.user!.isDemo,
+      },
     });
     createdCount++;
   }
@@ -277,6 +296,7 @@ export async function acceptIntern(req: Request, res: Response) {
   if (!intern || intern.role !== "intern") {
     throw new HttpError(404, "Intern not found");
   }
+  assertDemoScopeAllowed(req.user!.isDemo, intern.isDemo);
   if (intern.status !== "pending") {
     throw new HttpError(400, "This intern has already been processed");
   }
@@ -285,6 +305,7 @@ export async function acceptIntern(req: Request, res: Response) {
   if (!mentor || mentor.role !== "mentor") {
     throw new HttpError(404, "Mentor not found");
   }
+  assertDemoScopeAllowed(req.user!.isDemo, mentor.isDemo);
 
   const inviteToken = generateInviteToken();
   const updated = await prisma.user.update({
@@ -297,7 +318,7 @@ export async function acceptIntern(req: Request, res: Response) {
     },
   });
 
-  await sendInviteEmail(updated.email, updated.name, inviteToken);
+  await sendInviteEmail(updated.email, updated.name, inviteToken, req.user!.isDemo);
 
   res.json({
     intern: {
@@ -310,9 +331,9 @@ export async function acceptIntern(req: Request, res: Response) {
   });
 }
 
-export async function getAttendanceOverview(_req: Request, res: Response) {
+export async function getAttendanceOverview(req: Request, res: Response) {
   const people = await prisma.user.findMany({
-    where: { role: { in: ["mentor", "intern"] } },
+    where: { role: { in: ["mentor", "intern"] }, isDemo: req.user!.isDemo },
     select: { id: true, name: true, role: true, activatedAt: true, createdAt: true },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
@@ -341,6 +362,7 @@ export async function deleteIntern(req: Request, res: Response) {
   if (!intern || intern.role !== "intern") {
     throw new HttpError(404, "Intern not found");
   }
+  assertDemoScopeAllowed(req.user!.isDemo, intern.isDemo);
 
   const tasks = await prisma.task.findMany({ where: { assignedTo: internId } });
   for (const task of tasks) {

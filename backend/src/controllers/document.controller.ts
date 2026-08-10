@@ -9,6 +9,7 @@ import { DOCUMENT_UPLOAD_DIR } from "../middleware/upload.middleware";
 import { expandDescription } from "../utils/anthropic";
 import { generateDocumentPdf } from "../utils/pdf";
 import { sendDocumentEmail } from "../utils/mailer";
+import { assertDemoScopeAllowed } from "../utils/demo-scope";
 
 const DOCUMENT_LABELS = {
   offer: "Offer Letter",
@@ -18,11 +19,14 @@ const DOCUMENT_LABELS = {
 // An intern must have actually been accepted (invited or active) before we'll
 // generate a document for them — a still-pending sign-up isn't a real intern
 // yet, and this also keeps the dropdown consistent with the "All Interns" page.
-async function getAcceptedIntern(internId: string) {
+// Also enforces the demo sandbox boundary: a demo admin can only ever
+// generate documents for demo interns.
+async function getAcceptedIntern(internId: string, actorIsDemo: boolean) {
   const intern = await prisma.user.findUnique({ where: { id: internId } });
   if (!intern || intern.role !== "intern" || intern.status === "pending") {
     throw new HttpError(404, "Intern not found");
   }
+  assertDemoScopeAllowed(actorIsDemo, intern.isDemo);
   return intern;
 }
 
@@ -40,7 +44,7 @@ export async function generateDocument(req: Request, res: Response) {
   }
   const { internId, type, date, description } = parsed.data;
 
-  const intern = await getAcceptedIntern(internId);
+  const intern = await getAcceptedIntern(internId, req.user!.isDemo);
 
   const parsedDate = new Date(date);
   if (Number.isNaN(parsedDate.getTime())) {
@@ -87,7 +91,7 @@ export async function sendGeneratedDocument(req: Request, res: Response) {
     throw new HttpError(404, "Document not found");
   }
 
-  const intern = await getAcceptedIntern(parsed.data.internId);
+  const intern = await getAcceptedIntern(parsed.data.internId, req.user!.isDemo);
 
   const filePath = path.join(DOCUMENT_UPLOAD_DIR, `${documentId}.pdf`);
   if (!fs.existsSync(filePath)) {
@@ -95,12 +99,16 @@ export async function sendGeneratedDocument(req: Request, res: Response) {
   }
   const pdfBuffer = fs.readFileSync(filePath);
 
+  // Suppressed whenever the intern is a demo account, regardless of who's
+  // acting — demo interns don't have a real inbox to protect, but there's
+  // no reason to ever actually place an SMTP call for one.
   await sendDocumentEmail(
     intern.email,
     intern.name,
     DOCUMENT_LABELS[type],
     pdfBuffer,
-    `${DOCUMENT_LABELS[type].replace(/\s+/g, "-")}.pdf`
+    `${DOCUMENT_LABELS[type].replace(/\s+/g, "-")}.pdf`,
+    intern.isDemo
   );
 
   res.json({ success: true });

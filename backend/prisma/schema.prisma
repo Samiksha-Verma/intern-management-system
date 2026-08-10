@@ -46,6 +46,12 @@ model User {
   inviteTokenExpiresAt DateTime?  @map("invite_token_expires_at")
   activatedAt          DateTime?  @map("activated_at")
   department           String?    @map("department")
+  // Marks accounts that make up the self-contained public demo sandbox.
+  // Every admin query that lists/mutates data across users (not scoped to a
+  // single mentor's or intern's own rows) filters or checks this flag so a
+  // demo admin can never see or touch real data, and a real admin's own
+  // views never get cluttered with demo data.
+  isDemo               Boolean    @default(false) @map("is_demo")
   createdAt            DateTime   @default(now()) @map("created_at")
   updatedAt            DateTime   @updatedAt @map("updated_at")
 

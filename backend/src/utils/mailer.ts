@@ -20,8 +20,15 @@ export async function sendMail(
   to: string,
   subject: string,
   html: string,
-  attachments?: MailAttachment[]
+  attachments?: MailAttachment[],
+  suppress?: boolean
 ) {
+  if (suppress) {
+    console.log(
+      `\n[mailer] Suppressed (demo account) — logging instead of sending.\nTo: ${to}\nSubject: ${subject}\n`
+    );
+    return;
+  }
   if (!transporter) {
     console.log(
       `\n[mailer] SMTP not configured — logging email instead of sending.\nTo: ${to}\nSubject: ${subject}\n${html}` +
@@ -55,14 +62,19 @@ function setPasswordLinkEmail(opts: {
   `;
 }
 
-export async function sendInviteEmail(to: string, name: string, inviteToken: string) {
+export async function sendInviteEmail(
+  to: string,
+  name: string,
+  inviteToken: string,
+  suppress?: boolean
+) {
   const html = setPasswordLinkEmail({
     heading: "You've been invited",
     greeting: `Hi ${name}, you've been added to the Intern Management System. Click below to set your password and activate your account:`,
     buttonLabel: "Set your password",
     token: inviteToken,
   });
-  return sendMail(to, "You're invited to the Intern Management System", html);
+  return sendMail(to, "You're invited to the Intern Management System", html, undefined, suppress);
 }
 
 export async function sendDocumentEmail(
@@ -70,7 +82,8 @@ export async function sendDocumentEmail(
   internName: string,
   documentLabel: string,
   pdfBuffer: Buffer,
-  pdfFilename: string
+  pdfFilename: string,
+  suppress?: boolean
 ) {
   const html = `
     <div style="font-family: Arial, sans-serif; color: #111; max-width: 480px; margin: 0 auto;">
@@ -78,17 +91,26 @@ export async function sendDocumentEmail(
       <p>Hi ${internName}, please find your ${documentLabel.toLowerCase()} attached to this email.</p>
     </div>
   `;
-  return sendMail(to, documentLabel, html, [
-    { filename: pdfFilename, content: pdfBuffer, contentType: "application/pdf" },
-  ]);
+  return sendMail(
+    to,
+    documentLabel,
+    html,
+    [{ filename: pdfFilename, content: pdfBuffer, contentType: "application/pdf" }],
+    suppress
+  );
 }
 
-export async function sendPasswordResetEmail(to: string, name: string, resetToken: string) {
+export async function sendPasswordResetEmail(
+  to: string,
+  name: string,
+  resetToken: string,
+  suppress?: boolean
+) {
   const html = setPasswordLinkEmail({
     heading: "Reset your password",
     greeting: `Hi ${name}, we received a request to reset your password. Click below to set a new one:`,
     buttonLabel: "Reset your password",
     token: resetToken,
   });
-  return sendMail(to, "Reset your Intern Management System password", html);
+  return sendMail(to, "Reset your Intern Management System password", html, undefined, suppress);
 }
