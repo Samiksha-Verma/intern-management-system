@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  mentor
+  intern
+}
+
+enum UserStatus {
+  pending
+  invited
+  active
+}
+
+enum TaskStatus {
+  pending
+  in_progress
+  done
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  half_day
+  on_leave
+}
+
+model User {
+  id                   String     @id @default(uuid())
+  name                 String
+  email                String     @unique
+  passwordHash         String?    @map("password_hash")
+  role                 Role
+  mentorId             String?    @map("mentor_id")
+  mentor               User?      @relation("MentorInterns", fields: [mentorId], references: [id])
+  interns              User[]     @relation("MentorInterns")
+  status               UserStatus @default(pending)
+  inviteToken          String?    @unique @map("invite_token")
+  inviteTokenExpiresAt DateTime?  @map("invite_token_expires_at")
+  activatedAt          DateTime?  @map("activated_at")
+  department           String?    @map("department")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
+
+  tasksAssigned       Task[]       @relation("TaskAssignee")
+  tasksCreated        Task[]       @relation("TaskAssigner")
+  attendanceRecords   Attendance[]
+  evaluationsReceived Evaluation[] @relation("EvaluationIntern")
+  evaluationsGiven    Evaluation[] @relation("EvaluationMentor")
+
+  @@map("users")
+}
+
+model Task {
+  id          String     @id @default(uuid())
+  title       String
+  description String?
+  status      TaskStatus @default(pending)
+  assignedTo  String     @map("assigned_to")
+  assignedBy  String     @map("assigned_by")
+  assignee    User       @relation("TaskAssignee", fields: [assignedTo], references: [id])
+  assigner    User       @relation("TaskAssigner", fields: [assignedBy], references: [id])
+  dueDate     DateTime?  @map("due_date")
+  attachmentPath       String?   @map("attachment_path")
+  attachmentName       String?   @map("attachment_name")
+  attachmentUploadedAt DateTime? @map("attachment_uploaded_at")
+  completionNote       String?   @map("completion_note")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  @@map("tasks")
+}
+
+model Attendance {
+  id           String            @id @default(uuid())
+  internId     String            @map("intern_id")
+  intern       User              @relation(fields: [internId], references: [id])
+  date         DateTime          @db.Date
+  checkInTime  DateTime?         @map("check_in_time")
+  checkOutTime DateTime?         @map("check_out_time")
+  status       AttendanceStatus  @default(present)
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  @@unique([internId, date])
+  @@map("attendance")
+}
+
+model Evaluation {
+  id        String   @id @default(uuid())
+  internId  String   @map("intern_id")
+  mentorId  String   @map("mentor_id")
+  intern    User     @relation("EvaluationIntern", fields: [internId], references: [id])
+  mentor    User     @relation("EvaluationMentor", fields: [mentorId], references: [id])
+  rating    Int
+  feedback  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("evaluations")
+}

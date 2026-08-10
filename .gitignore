@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+dist/
+.next/
+
+# Local dev tooling / AI assistant config — not part of the app
+.claude/
+CLAUDE.md
+AGENTS.md
+
