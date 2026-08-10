@@ -10,8 +10,3 @@ node_modules/
 dist/
 .next/
 
-# Local dev tooling / AI assistant config — not part of the app
-.claude/
-CLAUDE.md
-AGENTS.md
-
